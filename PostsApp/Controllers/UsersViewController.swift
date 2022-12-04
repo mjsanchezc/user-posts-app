@@ -7,6 +7,7 @@
 
 import Foundation
 import Alamofire
+import CoreData
 import UIKit
 
 private struct UsersViewSegues {
@@ -26,7 +27,7 @@ class UsersViewController: UIViewController, PostsViewDelegate {
     override func viewDidLoad() {
         super.viewDidLoad()
         
-        getUsers()
+        getUsersCoreData()
         initSearchController()
         navigationController?.navigationBar.tintColor = .white
     }
@@ -42,19 +43,67 @@ class UsersViewController: UIViewController, PostsViewDelegate {
         }
     }
     
-    private func getUsers() {
+    private func getUsersRequest() {
         AF.request(URLs.users.rawValue, method: .get, parameters: nil, headers: nil).responseDecodable(of: [User].self) { response in
             if let responseData = response.data {
                 do {
                     self.decoder.keyDecodingStrategy = .convertFromSnakeCase
                     
                     self.users = try self.decoder.decode([User].self, from: responseData)
+                    self.saveUsersCoreData(self.users)
                     self.tableView?.reloadData()
                 } catch {
                     print(error.localizedDescription)
                 }
             }
         }
+    }
+    
+    private func saveUsersCoreData(_ users: [User]) {
+        for user in users {
+            let context = AppDelegate.sharedAppDelegate.coreDataStack.managedContext
+            let cdUser = CUsers(context: context)
+            cdUser.setValue(user.id, forKey: #keyPath(CUsers.userId))
+            cdUser.setValue(user.name, forKey: #keyPath(CUsers.name))
+            cdUser.setValue(user.phone, forKey: #keyPath(CUsers.phone))
+            cdUser.setValue(user.email, forKey: #keyPath(CUsers.email))
+        }
+        
+        AppDelegate.sharedAppDelegate.coreDataStack.saveContext()
+    }
+    
+    private func getUsersCoreData() {
+        let usersFetch: NSFetchRequest<CUsers> = CUsers.fetchRequest()
+        let sortById = NSSortDescriptor(key: #keyPath(CUsers.userId), ascending: true)
+        usersFetch.sortDescriptors = [sortById]
+        do {
+            let context = AppDelegate.sharedAppDelegate.coreDataStack.managedContext
+            let results = try context.fetch(usersFetch)
+            
+            if results.count == 0 {
+                getUsersRequest()
+            } else {
+                users = transformUsers(results)
+            }
+        } catch let error as NSError {
+            print("Fetch error: \(error) description: \(error.userInfo)")
+        }
+    }
+    
+    private func transformUsers(_ users: [CUsers]) -> [User] {
+        var returnUsers: [User] = []
+        
+        for user in users {
+            let transformedUser = User()
+            transformedUser.id = Int(user.userId)
+            transformedUser.name = user.name
+            transformedUser.phone = user.phone
+            transformedUser.email = user.email
+            
+            returnUsers.append(transformedUser)
+        }
+        
+        return returnUsers
     }
     
     private func initSearchController() {

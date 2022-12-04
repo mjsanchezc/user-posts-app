@@ -7,6 +7,7 @@
 
 import Foundation
 import Alamofire
+import CoreData
 import UIKit
 
 class PostsViewController: UIViewController {
@@ -24,7 +25,7 @@ class PostsViewController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         
-        getPosts()
+        getPostsCoreData()
         setUserDetails()
         navigationController?.navigationBar.tintColor = .white
     }
@@ -37,7 +38,7 @@ class PostsViewController: UIViewController {
         }
     }
     
-    private func getPosts() {
+    private func getPostsRequest() {
         var params: Parameters = [:]
         
         if let userId = user?.id {
@@ -50,12 +51,63 @@ class PostsViewController: UIViewController {
                     self.decoder.keyDecodingStrategy = .convertFromSnakeCase
                     
                     self.posts = try self.decoder.decode([Post].self, from: responseData)
+                    self.savePostsCoreData(self.posts)
                     self.tableView?.reloadData()
                 } catch {
                     print(error.localizedDescription)
                 }
             }
         }
+    }
+    
+    private func savePostsCoreData(_ posts: [Post]) {
+        for post in posts {
+            let context = AppDelegate.sharedAppDelegate.coreDataStack.managedContext
+            let cdPost = CPosts(context: context)
+            cdPost.setValue(post.id, forKey: #keyPath(CPosts.postId))
+            cdPost.setValue(post.userId, forKey: #keyPath(CPosts.userId))
+            cdPost.setValue(post.title, forKey: #keyPath(CPosts.title))
+            cdPost.setValue(post.body, forKey: #keyPath(CPosts.body))
+        }
+        
+        AppDelegate.sharedAppDelegate.coreDataStack.saveContext()
+    }
+    
+    private func getPostsCoreData() {
+        let postsFetch: NSFetchRequest<CPosts> = CPosts.fetchRequest()
+        let sortById = NSSortDescriptor(key: #keyPath(CPosts.postId), ascending: true)
+        postsFetch.sortDescriptors = [sortById]
+        do {
+            let context = AppDelegate.sharedAppDelegate.coreDataStack.managedContext
+            let results = try context.fetch(postsFetch)
+            let filteredPosts = transformPosts(results)
+            
+            if results.count == 0 || filteredPosts.isEmpty {
+                getPostsRequest()
+            } else {
+                posts = filteredPosts
+            }
+        } catch let error as NSError {
+            print("Fetch error: \(error) description: \(error.userInfo)")
+        }
+    }
+    
+    private func transformPosts(_ posts: [CPosts]) -> [Post] {
+        var returnPosts: [Post] = []
+        
+        for post in posts {
+            if let userId = user?.id, post.userId == userId {
+                let transformedPost = Post()
+                transformedPost.id = Int(post.postId)
+                transformedPost.userId = Int(post.userId)
+                transformedPost.title = post.title
+                transformedPost.body = post.body
+                
+                returnPosts.append(transformedPost)
+            }
+        }
+        
+        return returnPosts
     }
 }
 
